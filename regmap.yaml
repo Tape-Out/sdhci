@@ -1,0 +1,117 @@
+ip: sdhci
+contract: { aw: 8, dw: 32 }
+base: 0x10013000
+size: 0x100
+# 偏移与位照 Linux drivers/mmc/host/sdhci.h（提交 ae31bcc9）。息壤的控制口是对齐的 32 位字，
+# SDHCI 的 8 位、16 位寄存器按字节落进同一个字，接 Linux 时平台驱动给 32 位访问函数
+regs:
+  - name: blk
+    offset: 0x04
+    desc: block size in the low half, block count in the high half
+    fields:
+      - { name: size,  bits: "11:0",  sw: rw, hw: r, reset: 512, legal: [ 512 ] }
+      - { name: count, bits: "31:16", sw: rw, hw: r, reset: 0, legal: [ { min: 0, max: 1 } ] }
+  - name: arg
+    offset: 0x08
+    desc: command argument
+    fields: [ { name: val, bits: "31:0", sw: rw, hw: r, reset: 0 } ]
+  # 写这个字就发命令（SDHCI 本来就是「写命令寄存器即发起」，传输方式与命令号在同一个字里，
+  # 驱动整字写）；字段都存下来，引擎隔一拍读存下来的命令号，不用写入值那根线
+  - name: cmd
+    offset: 0x0C
+    desc: transfer mode in the low half; writing the word sends the command in the high half
+    fields:
+      - { name: cnten, bits: "1:1",   sw: rw, hw: r, reset: 0 }
+      - { name: read,  bits: "4:4",   sw: rw, hw: r, reset: 0 }
+      - { name: resp,  bits: "17:16", sw: rw, hw: r, reset: 0 }
+      - { name: crc,   bits: "19:19", sw: rw, hw: r, reset: 0 }
+      - { name: idx,   bits: "20:20", sw: rw, hw: r, reset: 0 }
+      - { name: data,  bits: "21:21", sw: rw, hw: r, reset: 0 }
+      - { name: index, bits: "29:24", sw: rw, hw: r, reset: 0, swmod: true }
+  - name: resp0
+    offset: 0x10
+    desc: response bits 31 to 0
+    fields: [ { name: val, bits: "31:0", sw: r, hw: w, volatile: true } ]
+  - name: resp1
+    offset: 0x14
+    desc: response bits 63 to 32
+    fields: [ { name: val, bits: "31:0", sw: r, hw: w, volatile: true } ]
+  - name: resp2
+    offset: 0x18
+    desc: response bits 95 to 64
+    fields: [ { name: val, bits: "31:0", sw: r, hw: w, volatile: true } ]
+  - name: resp3
+    offset: 0x1C
+    desc: response bits 127 to 96
+    fields: [ { name: val, bits: "31:0", sw: r, hw: w, volatile: true } ]
+  # PIO 数据口：读一个字取走四个字节，写一个字送进四个字节。没有存储，读出值由硬件每拍驱动，软件的写只交脉冲与写入值
+  - name: pio
+    offset: 0x20
+    desc: PIO data port, four bytes per word
+    fields: [ { name: val, bits: "31:0", sw: rw, hw: w, volatile: true, swacc: true, swmod: true, wrdata: true } ]
+  - name: state
+    offset: 0x24
+    desc: present state
+    fields:
+      - { name: cmdinh,  bits: "0:0",   sw: r, hw: w, volatile: true }
+      - { name: datinh,  bits: "1:1",   sw: r, hw: w, volatile: true }
+      - { name: dowrite, bits: "8:8",   sw: r, hw: w, volatile: true }
+      - { name: doread,  bits: "9:9",   sw: r, hw: w, volatile: true }
+      - { name: wrready, bits: "10:10", sw: r, hw: w, volatile: true }
+      - { name: rdready, bits: "11:11", sw: r, hw: w, volatile: true }
+      - { name: present, bits: "16:16", sw: r, hw: w, volatile: true }
+      - { name: stable,  bits: "17:17", sw: r, hw: w, volatile: true }
+      - { name: dat0,    bits: "20:20", sw: r, hw: w, volatile: true }
+      - { name: cmdlvl,  bits: "24:24", sw: r, hw: w, volatile: true }
+  - name: hctl
+    offset: 0x28
+    desc: host control in the low byte, power control in the next
+    fields:
+      - { name: bus4,  bits: "1:1",  sw: rw, hw: r, reset: 0, legal: [ 0 ] }
+      - { name: power, bits: "8:8",  sw: rw, hw: r, reset: 0 }
+      - { name: volt,  bits: "11:9", sw: rw, hw: r, reset: 0 }
+  # 软复位三位只写、读回零：一拍内复位完，驱动轮询它们清零时立刻看到 0
+  - name: clk
+    offset: 0x2C
+    desc: clock control, timeout control and software reset
+    fields:
+      - { name: inten,  bits: "0:0",   sw: rw, hw: r, reset: 0 }
+      - { name: stable, bits: "1:1",   sw: r,  hw: w, volatile: true }
+      - { name: carden, bits: "2:2",   sw: rw, hw: r, reset: 0 }
+      - { name: div,    bits: "15:8",  sw: rw, hw: r, reset: 0 }
+      - { name: tmo,    bits: "19:16", sw: rw, hw: r, reset: 0 }
+      - { name: rstall, bits: "24:24", sw: w,  hw: na, swmod: true, wrdata: true, reset: 0 }
+      - { name: rstcmd, bits: "25:25", sw: w,  hw: na, swmod: true, wrdata: true, reset: 0 }
+      - { name: rstdat, bits: "26:26", sw: w,  hw: na, swmod: true, wrdata: true, reset: 0 }
+  - name: ints
+    offset: 0x30
+    desc: normal interrupt status in the low half, error interrupt status in the high half
+    fields:
+      - { name: cmddone, bits: "0:0",   sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: xfer,    bits: "1:1",   sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: wrready, bits: "4:4",   sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: rdready, bits: "5:5",   sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: err,     bits: "15:15", sw: r,  hw: w, volatile: true }
+      - { name: cto,     bits: "16:16", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: ccrc,    bits: "17:17", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: cend,    bits: "18:18", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: cidx,    bits: "19:19", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: dto,     bits: "20:20", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: dcrc,    bits: "21:21", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+      - { name: dend,    bits: "22:22", sw: rw, onwrite: woclr, hw: r, hwset: true, stickybit: true, reset: 0 }
+  - name: inten
+    offset: 0x34
+    desc: interrupt status enable, same bit positions as ints
+    fields: [ { name: val, bits: "31:0", sw: rw, hw: r, reset: 0 } ]
+  - name: sigen
+    offset: 0x38
+    desc: interrupt signal enable, same bit positions as ints
+    fields: [ { name: val, bits: "31:0", sw: rw, hw: r, reset: 0 } ]
+  - name: caps
+    offset: 0x40
+    desc: capabilities
+    fields: [ { name: val, bits: "31:0", sw: r, hw: w, volatile: true } ]
+  - name: ver
+    offset: 0xFC
+    desc: host controller version in the high half
+    fields: [ { name: val, bits: "31:0", sw: r, hw: w, volatile: true } ]

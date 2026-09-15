@@ -1,0 +1,76 @@
+name: sdhci
+version: 0.1.0
+spec: '0.1'
+kind: ip
+lang:
+- bsv
+- bh
+identity:
+  slug: sdhci-tapeout-bsv
+  display_name: SD host controller
+  summary: SD host controller with the register layout of the Linux sdhci 
+    driver, a one-bit bus and single-block PIO transfers.
+  category: storage
+  subcategories:
+  - sd
+  ip_family: sdhci
+  integration_profile:
+  - apb4-slave
+  maturity: simulated
+contract:
+  version: 1
+  ctrl:
+    shape: flat
+    aw: 8
+    dw: 32
+  irq:
+  - name: irq
+    kind: level
+params: {}
+test:
+  # 这几个字段照 Linux sdhci 的布局留着给驱动写，本版实现里不看：块长与块数由 legal 钉死
+  # （512 字节、至多一块），cnten 只有多块传输才有意义，tmo 是交给卡的超时上限（本版按自己的时钟数超时），
+  # bus4 钉死一位总线，power 与 volt 没有电源开关可接。都在 README 的「本次不做」里
+  unused:
+  - blk_size
+  - blk_count
+  - cmd_cnten
+  - clk_tmo
+  - hctl_bus4
+  - hctl_power
+  - hctl_volt
+emit:
+- kind: bsv
+  package: Sdhci
+  module: mkSdhci
+  config_type: SdhciCfg
+  interface: SdhciIfc
+  ctrl: regs
+  pins:
+  # SD 卡座：时钟、CMD 与 DAT 的输出、输出使能、输入；四根 DAT 先留着，本版只用 DAT0
+  - name: sd
+    type: SdPins
+- kind: verilog-flat
+  bus: apb4
+deps:
+  hwcore: ^0.1
+  amba: ^0.1
+area:
+  base:
+    fixed: 59281.6
+  margin: 0.0
+  model: points-additive
+  error:
+    bound: 0.0
+    sign: over
+    note: first measured by ran recal --init; every configuration is on the grid
+  measured:
+  - at: {}
+    um2: 59281.6
+  corner:
+    tool: ecc
+    pdk: ics55
+    freq_mhz: 100
+    measured: '2026-09-16'
+    toolchain: bsc 2026.01 · yosys 0.68+195 · ecc 0.1.0a11
+    gen_digest: sha256:a06e07b5b3413ba9

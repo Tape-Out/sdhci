@@ -1,0 +1,97 @@
+package SdFrame where
+
+-- SD 总线上的帧：48 位命令帧的打包、48 位与 136 位响应帧的拆包，命令寄存器译出的响应类型，
+-- DAT 线的 CRC16 与写块之后卡回的 CRC 状态令牌。
+-- 帧的位布局照 litesdcard 的 CMD 线收发（提交 227d61bc）：起始位 0、传输位、6 位命令号、32 位内容、CRC7、结束位 1；
+-- 136 位响应照 litesdcard 卡模拟器 sd_link.v 的拼法：起始位 0、传输位 0、6 个 1、CID 或 CSD 的高 127 位、结束位 1。
+-- 响应类型的组合照 Linux sdhci.h 的 SDHCI_CMD_RESP_* 与 core.h 的 MMC_RSP_*。
+-- CRC16 与令牌照 litesdcard crc.py 的 CRC16（多项式 0x1021、初值 0、高位先）与 phy.py SDPHYDATAW 的状态码。
+--
+-- 响应类型写成代数类型：「136 位不查命令号」「带忙只出现在 48 位」这类约束落在构造子上，
+-- 引擎只问方程要长度、查不查、要不要等忙，不自己拼一串布尔
+
+import qualified Vector
+import Gf2
+
+data Resp = RespNone
+          | R48 Bool Bool        -- 查 CRC、查命令号
+          | R48Busy Bool Bool
+          | R136
+  deriving (Bits, Eq, FShow)
+
+-- 命令寄存器的响应类型两位：0 无、1 长、2 短、3 短带忙
+respOf :: Bit 2 -> Bool -> Bool -> Resp
+respOf t c i =
+  case t of
+    0 -> RespNone
+    1 -> R136
+    2 -> R48 c i
+    _ -> R48Busy c i
+
+respLen :: Resp -> UInt 8
+respLen RespNone      = 0
+respLen R136          = 136
+respLen (R48 _ _)     = 48
+respLen (R48Busy _ _) = 48
+
+checksCrc :: Resp -> Bool
+checksCrc (R48 c _)     = c
+checksCrc (R48Busy c _) = c
+checksCrc _             = False
+
+checksIndex :: Resp -> Bool
+checksIndex (R48 _ i)     = i
+checksIndex (R48Busy _ i) = i
+checksIndex _             = False
+
+waitsBusy :: Resp -> Bool
+waitsBusy (R48Busy _ _) = True
+waitsBusy _             = False
+
+-- 按发送次序（高位先）逐位算 CRC7
+crc7Of :: Bit 40 -> Bit 7
+crc7Of body =
+  let bits :: Vector.Vector 40 (Bit 1)
+      bits = unpack body
+  in  Vector.foldl (crcBit crc7Mmc) 0 (Vector.reverse bits)
+
+cmdFrame :: Bit 6 -> Bit 32 -> Bit 48
+cmdFrame index arg =
+  let body :: Bit 40
+      body = (1 :: Bit 2) ++ index ++ arg
+  in  body ++ crc7Of body ++ (1 :: Bit 1)
+
+-- 48 位响应拆开：内容给响应寄存器，另报命令号对不对、CRC 对不对、结束位对不对
+struct Resp48 =
+    body    :: Bit 32
+    indexOk :: Bool
+    crcOk   :: Bool
+    endOk   :: Bool
+  deriving (Bits, FShow)
+
+parse48 :: Bit 6 -> Bit 48 -> Resp48
+parse48 index f =
+  Resp48 { body    = f[39:8];
+           indexOk = f[45:40] == index;
+           crcOk   = crc7Of f[47:8] == f[7:1];
+           endOk   = f[0:0] == 1 }
+
+-- 136 位响应：CID 或 CSD 去掉 CRC 那一个字节，高 120 位右对齐放进响应寄存器
+parse136 :: Bit 136 -> Bit 120
+parse136 f = f[127:8]
+
+-- DAT 线逐位步进的 CRC16：数据块边发边算、边收边算，不在展开期折一张 4096 级的网
+crc16Step :: Bit 16 -> Bit 1 -> Bit 16
+crc16Step c b = crcBit crc16Xmodem c b
+
+-- 写完一块卡回的 CRC 状态：起始位之后三位，010 收下、101 CRC 错、110 写错
+data Token = Accepted | CrcBad | WriteBad | TokenBad
+  deriving (Bits, Eq, FShow)
+
+tokenOf :: Bit 3 -> Token
+tokenOf t =
+  case t of
+    2 -> Accepted
+    5 -> CrcBad
+    6 -> WriteBad
+    _ -> TokenBad

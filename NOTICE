@@ -1,0 +1,23 @@
+sdhci
+
+The register layout follows the offset and bit definitions in the Linux
+kernel, drivers/mmc/host/sdhci.h, at commit ae31bcc9
+(GPL-2.0-or-later). Only those facts were used; no source code was copied.
+Command numbers and response types follow include/linux/mmc/mmc.h,
+include/linux/mmc/sd.h and include/linux/mmc/core.h in the same tree.
+
+The following work was consulted as a behavioural reference for the SD bus.
+No source code was copied from it.
+
+  enjoy-digital/litesdcard, commit 227d61bc
+  BSD-2-Clause
+  https://github.com/enjoy-digital/litesdcard
+
+The behavioural card model in the testbench was written after the card
+emulator in the same repository, litesdcard/emulator/verilog, which is
+Copyright 2015 Google Inc. and 2017 Micah Elizabeth Scott under the Apache
+License, Version 2.0. No source code was copied from it.
+
+The SD Association's Simplified Specifications were not redistributed.
+Any implementation of the SD specifications may require a license from the
+SD Association, SD Group, SD-3C, LLC or other third parties.
