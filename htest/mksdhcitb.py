@@ -57,7 +57,7 @@ verdict = ("the host controller initialises the card with correct CRC7, lands 48
 
 TEMPLATE = r'''package Sdhci@L@Tb;
 
-// 由 tb/mksdhcitb.py 生成，勿手改
+// 由 htest/mksdhcitb.py 生成，勿手改
 
 import StmtFSM::*;
 import RegIf::*;
